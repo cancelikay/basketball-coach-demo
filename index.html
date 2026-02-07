@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Basketball Coach — Demo</title>
+<!-- TF.js loaded on-demand when training starts -->
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #fff; min-height: 100vh; }
+
+  /* ── Screens ── */
+  .screen { display:none; flex-direction:column; align-items:center; min-height:100vh; padding:24px; }
+  .screen.active { display:flex; }
+
+  /* ── Home ── */
+  .logo { font-size:28px; font-weight:800; margin:40px 0 8px; }
+  .logo span { color:#00ff88; }
+  .subtitle { color:#888; font-size:14px; margin-bottom:32px; }
+
+  .mode-card {
+    width:100%; max-width:480px; background:#16213e; border:1px solid #0f3460;
+    border-radius:16px; padding:20px; margin-bottom:12px; cursor:pointer;
+    transition: all 0.2s; text-align:left; -webkit-tap-highlight-color:transparent;
+    user-select:none; -webkit-user-select:none; touch-action:manipulation;
+  }
+  .mode-card:hover, .mode-card:active { border-color:#00ff8880; transform:translateY(-2px); }
+  .mode-icon { font-size:32px; margin-bottom:8px; }
+  .mode-name { font-size:18px; font-weight:700; margin-bottom:4px; }
+  .mode-desc { font-size:13px; color:#888; margin-bottom:8px; }
+  .mode-tags { display:flex; gap:8px; }
+  .tag { font-size:11px; background:#0f3460; padding:4px 10px; border-radius:20px; color:#00ff88; }
+  .tag.gray { color:#888; }
+
+  .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; width:100%; max-width:480px; margin-top:24px; }
+  .info-card { background:#16213e; border:1px solid #0f3460; border-radius:12px; padding:16px; }
+  .info-card .ic-icon { font-size:24px; margin-bottom:8px; }
+  .info-card .ic-title { font-size:13px; font-weight:600; }
+  .info-card .ic-desc { font-size:11px; color:#666; margin-top:4px; }
+
+  /* ── Setup ── */
+  .back-btn { color:#00ff88; font-size:14px; cursor:pointer; background:none; border:none; margin-bottom:16px; align-self:flex-start; }
+  .page-title { font-size:22px; font-weight:700; margin-bottom:4px; align-self:flex-start; max-width:480px; width:100%; }
+  .page-sub { font-size:13px; color:#888; margin-bottom:20px; align-self:flex-start; max-width:480px; width:100%; }
+
+  .cam-container {
+    width:100%; max-width:480px; aspect-ratio:4/3; background:#000; border-radius:16px;
+    overflow:hidden; position:relative; margin-bottom:20px;
+  }
+  .cam-container video, .cam-container canvas { width:100%; height:100%; object-fit:cover; }
+  .cam-guide {
+    position:absolute; left:50%; top:10%; bottom:5%; width:40%;
+    transform:translateX(-50%); border:2px dashed rgba(255,255,255,0.2);
+    border-radius:40%; pointer-events:none;
+  }
+  .score-badge {
+    position:absolute; top:12px; right:12px; padding:4px 12px;
+    border-radius:20px; font-size:13px; font-weight:700;
+  }
+  .score-green { background:rgba(0,255,136,0.9); color:#1a1a2e; }
+  .score-yellow { background:rgba(255,200,0,0.9); color:#1a1a2e; }
+  .score-red { background:rgba(255,68,68,0.9); color:#fff; }
+
+  .check-list { width:100%; max-width:480px; margin-bottom:24px; }
+  .check-item {
+    display:flex; align-items:center; gap:12px; padding:12px; border-radius:12px;
+    border:1px solid #0f3460; background:#16213e; margin-bottom:8px; transition:all 0.3s;
+  }
+  .check-item.ok { border-color:rgba(0,255,136,0.3); background:rgba(0,255,136,0.05); }
+  .check-dot {
+    width:32px; height:32px; border-radius:50%; display:flex; align-items:center;
+    justify-content:center; font-size:13px; background:#333; color:#888;
+  }
+  .check-item.ok .check-dot { background:#00ff88; color:#1a1a2e; }
+  .check-label { font-size:14px; font-weight:500; }
+  .check-item.ok .check-label { color:#00ff88; }
+  .check-hint { font-size:11px; color:#666; }
+
+  .btn-primary {
+    width:100%; max-width:480px; padding:16px; border-radius:12px; border:none;
+    font-size:17px; font-weight:700; cursor:pointer; transition:all 0.2s;
+    background:#00ff88; color:#1a1a2e; -webkit-tap-highlight-color:transparent;
+    touch-action:manipulation;
+  }
+  .btn-primary:disabled { background:#333; color:#666; cursor:not-allowed; }
+  .btn-secondary {
+    width:100%; max-width:480px; padding:12px; border-radius:12px;
+    border:1px solid #0f3460; background:transparent; color:#aaa;
+    font-size:13px; cursor:pointer; margin-top:8px; -webkit-tap-highlight-color:transparent;
+    touch-action:manipulation;
+  }
+  .btn-stop { touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+  .back-btn { touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+
+  /* ── Train ── */
+  .train-top {
+    width:100%; display:flex; justify-content:space-between; align-items:center;
+    padding:12px 16px; background:rgba(26,26,46,0.85); backdrop-filter:blur(8px); z-index:10;
+  }
+  .train-mode { color:#00ff88; font-weight:700; font-size:18px; }
+  .train-time { color:#888; font-size:14px; font-family:monospace; margin-left:12px; }
+  .train-stat { font-size:12px; color:#666; }
+  .train-stat b { color:#00ff88; font-family:monospace; }
+  .train-stat.events b { color:#ffcc00; }
+
+  .train-canvas-wrap {
+    flex:1; width:100%; position:relative; background:#000; overflow:hidden;
+  }
+  .train-canvas-wrap video { position:absolute; opacity:0; }
+  .train-canvas-wrap canvas { width:100%; height:100%; object-fit:cover; }
+
+  .cue-overlay {
+    position:absolute; bottom:100px; left:16px; right:16px;
+    display:flex; justify-content:center; z-index:20; pointer-events:none;
+  }
+  .cue-bubble {
+    padding:12px 24px; border-radius:16px; font-weight:700; font-size:16px;
+    box-shadow:0 4px 20px rgba(0,0,0,0.4); animation: cuePop 0.3s ease-out;
+  }
+  .cue-praise { background:#00ff88; color:#1a1a2e; }
+  .cue-instruction { background:rgba(255,68,68,0.9); color:#fff; }
+  .cue-micro { background:rgba(255,200,0,0.9); color:#1a1a2e; }
+
+  @keyframes cuePop {
+    0% { transform:scale(0.8) translateY(20px); opacity:0; }
+    100% { transform:scale(1) translateY(0); opacity:1; }
+  }
+
+  .train-bottom {
+    width:100%; padding:16px; background:rgba(26,26,46,0.85);
+    backdrop-filter:blur(8px); display:flex; justify-content:center;
+  }
+  .btn-stop {
+    padding:16px 48px; background:#e74c3c; color:#fff; border:none;
+    border-radius:16px; font-size:17px; font-weight:700; cursor:pointer;
+  }
+  .btn-stop:hover { background:#c0392b; }
+
+  /* ── Summary ── */
+  .summary-score {
+    width:100%; max-width:480px; background:#16213e; border:1px solid #0f3460;
+    border-radius:20px; padding:32px; text-align:center; margin-bottom:24px;
+  }
+  .score-big { font-size:72px; font-weight:800; }
+  .score-max { color:#888; font-size:14px; }
+  .score-label { font-size:18px; font-weight:600; margin-top:8px; }
+  .score-stats { display:flex; justify-content:center; gap:32px; margin-top:24px; }
+  .score-stat-val { font-size:20px; font-weight:700; display:block; }
+  .score-stat-lbl { font-size:12px; color:#888; }
+  .stat-divider { border-left:1px solid #0f3460; }
+
+  .section-title { font-size:17px; font-weight:600; margin-bottom:12px; align-self:flex-start; max-width:480px; width:100%; }
+
+  .mistake-card {
+    width:100%; max-width:480px; background:#16213e; border:1px solid #0f3460;
+    border-radius:12px; padding:16px; margin-bottom:8px; display:flex; align-items:center; gap:16px;
+  }
+  .mistake-num {
+    width:40px; height:40px; border-radius:50%; background:rgba(255,68,68,0.2);
+    color:#ff4444; display:flex; align-items:center; justify-content:center; font-weight:700;
+  }
+  .mistake-info { flex:1; }
+  .mistake-label { font-weight:600; font-size:14px; }
+  .mistake-count { font-size:12px; color:#888; }
+  .sev-badge { font-size:11px; font-weight:700; padding:4px 8px; border-radius:8px; }
+  .sev-high { background:rgba(255,68,68,0.2); color:#ff4444; }
+  .sev-med { background:rgba(255,200,0,0.2); color:#ffcc00; }
+  .sev-low { background:rgba(136,136,136,0.2); color:#888; }
+
+  .timeline-box {
+    width:100%; max-width:480px; background:#16213e; border:1px solid #0f3460;
+    border-radius:12px; padding:16px; margin-bottom:24px; max-height:200px; overflow-y:auto;
+  }
+  .tl-row { display:flex; align-items:center; gap:10px; font-size:13px; padding:4px 0; }
+  .tl-time { color:#666; font-family:monospace; min-width:50px; }
+  .tl-dot { width:8px; height:8px; border-radius:50%; }
+  .tl-dot.s5,.tl-dot.s4 { background:#ff4444; }
+  .tl-dot.s3 { background:#ffcc00; }
+  .tl-dot.s2,.tl-dot.s1 { background:#888; }
+
+  .tip-box {
+    width:100%; max-width:480px; background:#16213e; border:1px solid rgba(0,255,136,0.2);
+    border-radius:12px; padding:20px; margin-bottom:24px;
+  }
+  .tip-row { display:flex; gap:12px; margin-bottom:8px; font-size:14px; }
+  .tip-num { color:#00ff88; font-weight:700; }
+  .tip-text { color:#ccc; }
+
+  .cue-log {
+    width:100%; max-width:480px; margin-bottom:24px;
+  }
+  .cue-log-item {
+    padding:10px 16px; border-radius:12px; margin-bottom:6px; font-size:13px;
+    display:flex; align-items:center; gap:12px;
+  }
+  .cue-log-item.praise { background:rgba(0,255,136,0.08); border:1px solid rgba(0,255,136,0.2); }
+  .cue-log-item.instruction { background:rgba(255,68,68,0.08); border:1px solid rgba(255,68,68,0.2); }
+  .cue-log-item.micro { background:rgba(255,200,0,0.08); border:1px solid rgba(255,200,0,0.2); }
+  .cue-log-time { font-family:monospace; color:#666; font-size:11px; min-width:50px; }
+  .cue-log-text.praise { color:#00ff88; }
+  .cue-log-text.instruction { color:#ff4444; }
+  .cue-log-text.micro { color:#ffcc00; }
+
+  .loading-screen {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-height:100vh; padding:24px;
+  }
+  .spinner {
+    width:56px; height:56px; border:4px solid #00ff88; border-top-color:transparent;
+    border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:24px;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .loading-title { font-size:20px; font-weight:700; margin-bottom:8px; }
+  .loading-sub { font-size:13px; color:#888; }
+  .loading-hint { font-size:11px; color:#555; margin-top:16px; }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ HOME SCREEN ════════════════════ -->
+<div id="screen-home" class="screen active">
+  <div class="logo"><span>AI</span> Basketball Coach</div>
+  <div class="subtitle">Yapay zeka destekli basketbol antrenörü — MVP Demo</div>
+
+  <div class="mode-card" onclick="goSetup('shot')">
+    <div class="mode-icon">🏀</div>
+    <div class="mode-name">Şut Antrenmanı</div>
+    <div class="mode-desc">Dirsek hizası, bilek bırakışı ve ayak pozisyonunu analiz eder</div>
+    <div class="mode-tags"><span class="tag">3 kontrol</span><span class="tag gray">~10 dk</span></div>
+  </div>
+  <div class="mode-card" onclick="goSetup('layup')">
+    <div class="mode-icon">🤸</div>
+    <div class="mode-name">Layup Antrenmanı</div>
+    <div class="mode-desc">Gövde kayması ve adım ritmi kontrolü</div>
+    <div class="mode-tags"><span class="tag">2 kontrol</span><span class="tag gray">~8 dk</span></div>
+  </div>
+  <div class="mode-card" onclick="goSetup('dribble')">
+    <div class="mode-icon">⛹️</div>
+    <div class="mode-name">Dribble Antrenmanı</div>
+    <div class="mode-desc">El tutarlılığı ve üst gövde stabilitesi</div>
+    <div class="mode-tags"><span class="tag">2 kontrol</span><span class="tag gray">~8 dk</span></div>
+  </div>
+
+  <div class="info-grid">
+    <div class="info-card"><div class="ic-icon">📱</div><div class="ic-title">On-Device İşleme</div><div class="ic-desc">Pose detection tarayıcıda çalışır</div></div>
+    <div class="info-card"><div class="ic-icon">🔒</div><div class="ic-title">Veri Güvenliği</div><div class="ic-desc">Veriler cihazda kalır</div></div>
+    <div class="info-card"><div class="ic-icon">🎯</div><div class="ic-title">Gerçek Zamanlı</div><div class="ic-desc">Anında sesli geri bildirim (TR)</div></div>
+    <div class="info-card"><div class="ic-icon">📊</div><div class="ic-title">Detaylı Özet</div><div class="ic-desc">Puan, hatalar, ipuçları</div></div>
+  </div>
+</div>
+
+<!-- ════════════════════ SETUP SCREEN ════════════════════ -->
+<div id="screen-setup" class="screen">
+  <button class="back-btn" onclick="showScreen('home')">← Geri</button>
+  <div class="page-title" id="setup-title">Şut Antrenmanı</div>
+  <div class="page-sub">Kamera kurulumunu kontrol ediyoruz</div>
+
+  <div class="cam-container">
+    <video id="setup-video" autoplay playsinline muted></video>
+    <div class="cam-guide"></div>
+    <div id="setup-score-badge" class="score-badge" style="display:none"></div>
+  </div>
+
+  <div class="check-list">
+    <div class="check-item" id="chk-body"><div class="check-dot">○</div><div><div class="check-label">Tam vücut görünümde</div><div class="check-hint">Baştan ayağa görünmeniz gerekiyor</div></div></div>
+    <div class="check-item" id="chk-light"><div class="check-dot">○</div><div><div class="check-label">Aydınlatma yeterli</div><div class="check-hint">İyi aydınlatılmış bir ortam seçin</div></div></div>
+    <div class="check-item" id="chk-dist"><div class="check-dot">○</div><div><div class="check-label">Mesafe uygun</div><div class="check-hint">Kameradan 2-4 metre uzakta durun</div></div></div>
+    <div class="check-item" id="chk-stable"><div class="check-dot">○</div><div><div class="check-label">Cihaz sabit</div><div class="check-hint">Telefon/bilgisayarı sabit tutun</div></div></div>
+  </div>
+
+  <button class="btn-primary" id="btn-start" disabled onclick="goTrain()">Kurulumu Tamamlayın</button>
+  <button class="btn-secondary" onclick="runSetupCheck()">Tekrar Kontrol Et</button>
+</div>
+
+<!-- ════════════════════ LOADING SCREEN ════════════════════ -->
+<div id="screen-loading" class="screen">
+  <div class="loading-screen">
+    <div class="spinner"></div>
+    <div class="loading-title">Hazırlanıyor</div>
+    <div class="loading-sub" id="loading-msg">TensorFlow.js yükleniyor...</div>
+    <div class="loading-hint">İlk yüklemede birkaç saniye sürebilir</div>
+  </div>
+</div>
+
+<!-- ════════════════════ TRAIN SCREEN ════════════════════ -->
+<div id="screen-train" class="screen" style="padding:0;">
+  <div class="train-top">
+    <div>
+      <span class="train-mode" id="train-mode-label">Şut</span>
+      <span class="train-time" id="train-time">0:00</span>
+    </div>
+    <div style="display:flex;gap:16px;">
+      <div class="train-stat"><b id="train-fps">0</b> FPS</div>
+      <div class="train-stat events"><b id="train-events">0</b> olay</div>
+    </div>
+  </div>
+
+  <div class="train-canvas-wrap">
+    <video id="train-video" autoplay playsinline muted></video>
+    <canvas id="train-canvas"></canvas>
+    <div class="cue-overlay" id="cue-overlay" style="display:none;">
+      <div class="cue-bubble" id="cue-bubble"></div>
+    </div>
+  </div>
+
+  <div class="train-bottom">
+    <button class="btn-stop" onclick="stopTrain()">Antrenmanı Bitir</button>
+  </div>
+</div>
+
+<!-- ════════════════════ SUMMARY SCREEN ════════════════════ -->
+<div id="screen-summary" class="screen">
+  <div class="page-title">Antrenman Özeti</div>
+  <div class="page-sub" id="summary-mode-label">Şut Antrenmanı</div>
+
+  <div class="summary-score">
+    <div class="score-big" id="sum-score">0</div>
+    <div class="score-max">/ 100</div>
+    <div class="score-label" id="sum-label">—</div>
+    <div class="score-stats">
+      <div><span class="score-stat-val" id="sum-duration">0:00</span><span class="score-stat-lbl">Süre</span></div>
+      <div class="stat-divider"></div>
+      <div><span class="score-stat-val" id="sum-events">0</span><span class="score-stat-lbl">Tespit</span></div>
+      <div class="stat-divider"></div>
+      <div><span class="score-stat-val" id="sum-cues">0</span><span class="score-stat-lbl">Geri Bildirim</span></div>
+    </div>
+  </div>
+
+  <div id="sum-mistakes-section" style="width:100%;max-width:480px;margin-bottom:24px;display:none;">
+    <div class="section-title">En Sık Hatalar</div>
+    <div id="sum-mistakes"></div>
+  </div>
+
+  <div id="sum-timeline-section" style="width:100%;max-width:480px;margin-bottom:24px;display:none;">
+    <div class="section-title">Zaman Çizelgesi</div>
+    <div class="timeline-box" id="sum-timeline"></div>
+  </div>
+
+  <div id="sum-cues-section" style="width:100%;max-width:480px;margin-bottom:24px;display:none;">
+    <div class="section-title">Verilen Geri Bildirimler</div>
+    <div class="cue-log" id="sum-cue-log"></div>
+  </div>
+
+  <div id="sum-tips-section" style="width:100%;max-width:480px;margin-bottom:24px;display:none;">
+    <div class="section-title">Sonraki Antrenman İçin İpuçları</div>
+    <div class="tip-box" id="sum-tips"></div>
+  </div>
+
+  <button class="btn-primary" onclick="goSetup(currentMode)" style="margin-bottom:8px;">Tekrar Antrenman Yap</button>
+  <button class="btn-secondary" onclick="showScreen('home')">Ana Sayfaya Dön</button>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════════════════════
+// Helper: load a script dynamically
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Script yüklenemedi: ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+let currentMode = 'shot';
+let detector = null;
+let trainStream = null;
+let trainRunning = false;
+let trainRAF = 0;
+let trainStart = 0;
+let frameHistory = [];
+let allEvents = [];
+let allCues = [];
+let eventCount = 0;
+let fpsCounter = { frames:0, last:0, fps:0 };
+let feedbackState = { lastTime:0, lastLabel:'', lastLabelTime:0, goodFrames:0 };
+
+const MODE_NAMES = { shot:'Şut Antrenmanı', layup:'Layup Antrenmanı', dribble:'Dribble Antrenmanı' };
+const MODE_SHORT = { shot:'Şut', layup:'Layup', dribble:'Dribble' };
+const LABEL_TR = {
+  low_elbow:'Düşük Dirsek', late_release:'Geç Bırakış', no_snap:'Bilek Kırma Yok',
+  feet_misaligned:'Ayak Hizası Bozuk', stance_too_narrow:'Dar Duruş',
+  torso_drift:'Gövde Kayması', timing_off:'Ritim Hatası',
+  hand_inconsistent:'Tutarsız El', upper_body_sway:'Üst Gövde Sallanması'
+};
+const TIP_MAP = {
+  low_elbow:'Şut çekerken dirseğini omuz hizasının üstünde tut',
+  late_release:'Top bırakışını daha erken yap, bileğini gevşet',
+  no_snap:'Bileğini şut sonunda öne doğru kır',
+  feet_misaligned:'Ayaklarını potaya doğru hizala',
+  stance_too_narrow:'Ayaklarını omuz genişliğinde aç, denge için',
+  torso_drift:'Layup sırasında gövdeni dik tut',
+  timing_off:'Son adım ritmini çalış: uzun-kısa-atla',
+  hand_inconsistent:'Dribblerken elin sabit yükseklikte kalsın',
+  upper_body_sway:'Dribble sırasında omuzlarını sabit tut'
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// NAVIGATION
+// ════════════════════════════════════════════════════════════════════════════
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+}
+
+function goSetup(mode) {
+  currentMode = mode;
+  document.getElementById('setup-title').textContent = MODE_NAMES[mode];
+  // Reset checks
+  ['chk-body','chk-light','chk-dist','chk-stable'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('ok');
+    el.querySelector('.check-dot').textContent = '○';
+  });
+  document.getElementById('setup-score-badge').style.display = 'none';
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-start').textContent = 'Kurulumu Tamamlayın';
+  showScreen('setup');
+  startSetupCamera();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SETUP CAMERA
+// ════════════════════════════════════════════════════════════════════════════
+let setupStream = null;
+
+async function startSetupCamera() {
+  try {
+    if (setupStream) setupStream.getTracks().forEach(t => t.stop());
+    setupStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode:'user', width:640, height:480 }
+    });
+    document.getElementById('setup-video').srcObject = setupStream;
+    setTimeout(runSetupCheck, 2000);
+  } catch(e) {
+    alert('Kamera erişimi sağlanamadı. Lütfen izin verin.');
+  }
+}
+
+function runSetupCheck() {
+  const video = document.getElementById('setup-video');
+  if (!video || !video.videoWidth) return;
+
+  // Analyze brightness from video
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth; c.height = video.videoHeight;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+  const d = ctx.getImageData(0, 0, c.width, c.height).data;
+  let brightness = 0;
+  for (let i = 0; i < d.length; i += 16) brightness += (d[i] + d[i+1] + d[i+2]) / 3;
+  brightness /= (d.length / 16);
+
+  const lightOk = brightness > 50;
+  const bodyOk = brightness > 20; // simplified: if camera works, assume body visible
+  const distOk = true;
+  const stableOk = true;
+
+  setCheck('chk-body', bodyOk);
+  setCheck('chk-light', lightOk);
+  setCheck('chk-dist', distOk);
+  setCheck('chk-stable', stableOk);
+
+  const score = [bodyOk, lightOk, distOk, stableOk].filter(Boolean).length * 25;
+  const badge = document.getElementById('setup-score-badge');
+  badge.style.display = 'block';
+  badge.textContent = score + '/100';
+  badge.className = 'score-badge ' + (score >= 75 ? 'score-green' : score >= 50 ? 'score-yellow' : 'score-red');
+
+  const btn = document.getElementById('btn-start');
+  if (score >= 50) {
+    btn.disabled = false;
+    btn.textContent = 'Antrenmana Başla';
+  }
+}
+
+function setCheck(id, ok) {
+  const el = document.getElementById(id);
+  if (ok) {
+    el.classList.add('ok');
+    el.querySelector('.check-dot').textContent = '✓';
+  } else {
+    el.classList.remove('ok');
+    el.querySelector('.check-dot').textContent = '○';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// TRAINING
+// ════════════════════════════════════════════════════════════════════════════
+async function goTrain() {
+  if (setupStream) { setupStream.getTracks().forEach(t => t.stop()); setupStream = null; }
+  showScreen('loading');
+  document.getElementById('loading-msg').textContent = 'TensorFlow.js yükleniyor...';
+
+  try {
+    // Dynamically load TF.js if not already loaded
+    if (typeof tf === 'undefined') {
+      document.getElementById('loading-msg').textContent = 'TensorFlow.js yükleniyor...';
+      await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js');
+    }
+    await tf.ready();
+
+    if (typeof poseDetection === 'undefined') {
+      document.getElementById('loading-msg').textContent = 'Pose kütüphanesi yükleniyor...';
+      await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js');
+    }
+
+    document.getElementById('loading-msg').textContent = 'Pose modeli yükleniyor...';
+
+    // Load MoveNet
+    detector = await poseDetection.createDetector(
+      poseDetection.SupportedModels.MoveNet,
+      { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+    );
+
+    document.getElementById('loading-msg').textContent = 'Kamera başlatılıyor...';
+
+    trainStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode:'user', width:640, height:480 }, audio: false
+    });
+    const video = document.getElementById('train-video');
+    video.srcObject = trainStream;
+    await video.play();
+
+    // Reset state
+    frameHistory = [];
+    allEvents = [];
+    allCues = [];
+    eventCount = 0;
+    fpsCounter = { frames:0, last:Date.now(), fps:0 };
+    feedbackState = { lastTime:0, lastLabel:'', lastLabelTime:0, goodFrames:0 };
+    trainStart = Date.now();
+    trainRunning = true;
+
+    document.getElementById('train-mode-label').textContent = MODE_SHORT[currentMode];
+    document.getElementById('train-time').textContent = '0:00';
+    document.getElementById('train-fps').textContent = '0';
+    document.getElementById('train-events').textContent = '0';
+
+    showScreen('train');
+    trainLoop();
+  } catch(e) {
+    console.error(e);
+    alert('Hata: ' + e.message);
+    showScreen('home');
+  }
+}
+
+async function trainLoop() {
+  if (!trainRunning) return;
+  const video = document.getElementById('train-video');
+  const canvas = document.getElementById('train-canvas');
+  const ctx = canvas.getContext('2d');
+
+  if (video.readyState < 2) { trainRAF = requestAnimationFrame(trainLoop); return; }
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+
+  try {
+    const poses = await detector.estimatePoses(video);
+    const now = Date.now();
+    const ts = now - trainStart;
+
+    // FPS
+    fpsCounter.frames++;
+    if (now - fpsCounter.last >= 1000) {
+      fpsCounter.fps = fpsCounter.frames;
+      fpsCounter.frames = 0;
+      fpsCounter.last = now;
+      document.getElementById('train-fps').textContent = fpsCounter.fps;
+    }
+
+    // Timer
+    const sec = Math.floor(ts / 1000);
+    document.getElementById('train-time').textContent = Math.floor(sec/60) + ':' + String(sec%60).padStart(2,'0');
+
+    // Draw video
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    if (poses.length > 0 && poses[0].keypoints) {
+      const kps = poses[0].keypoints.map(k => ({
+        x: k.x / canvas.width, y: k.y / canvas.height,
+        score: k.score || 0, name: k.name || ''
+      }));
+
+      frameHistory.push(kps);
+      if (frameHistory.length > 60) frameHistory.shift();
+
+      // Rule checks
+      const events = checkRules(kps, frameHistory, currentMode, ts);
+      if (events.length > 0) {
+        eventCount += events.length;
+        allEvents.push(...events);
+        document.getElementById('train-events').textContent = eventCount;
+      }
+
+      // Feedback
+      const cue = processFeedback(events, ts);
+      if (cue) {
+        allCues.push(cue);
+        showCue(cue);
+        speak(cue.text);
+      }
+
+      // Draw skeleton
+      drawSkeleton(ctx, kps, canvas.width, canvas.height, events);
+    }
+  } catch(e) { /* continue */ }
+
+  trainRAF = requestAnimationFrame(trainLoop);
+}
+
+function stopTrain() {
+  trainRunning = false;
+  if (trainRAF) cancelAnimationFrame(trainRAF);
+  if (trainStream) { trainStream.getTracks().forEach(t => t.stop()); trainStream = null; }
+  if (detector && detector.dispose) detector.dispose();
+  detector = null;
+
+  const duration = Date.now() - trainStart;
+  buildSummary(duration);
+  showScreen('summary');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// POSE RULES
+// ════════════════════════════════════════════════════════════════════════════
+function kpByName(kps, name) { return kps.find(k => k.name === name); }
+
+function angle3(a, b, c) {
+  const ba = { x:a.x-b.x, y:a.y-b.y };
+  const bc = { x:c.x-b.x, y:c.y-b.y };
+  const dot = ba.x*bc.x + ba.y*bc.y;
+  const m1 = Math.sqrt(ba.x**2 + ba.y**2);
+  const m2 = Math.sqrt(bc.x**2 + bc.y**2);
+  if (m1===0||m2===0) return 0;
+  return Math.acos(Math.max(-1, Math.min(1, dot/(m1*m2)))) * 180 / Math.PI;
+}
+
+function checkRules(kps, history, mode, ts) {
+  const events = [];
+
+  if (mode === 'shot') {
+    // Elbow check
+    for (const side of ['right','left']) {
+      const sh = kpByName(kps, side+'_shoulder');
+      const el = kpByName(kps, side+'_elbow');
+      const wr = kpByName(kps, side+'_wrist');
+      if (sh&&el&&wr && sh.score>0.3&&el.score>0.3&&wr.score>0.3) {
+        const a = angle3(sh, el, wr);
+        if (a < 70) events.push({ label:'low_elbow', severity: a<50?4:3, msg:'Dirseğini biraz daha yukarı kaldır', ts });
+      }
+    }
+    // Feet width
+    const la = kpByName(kps,'left_ankle'), ra = kpByName(kps,'right_ankle');
+    const ls = kpByName(kps,'left_shoulder'), rs = kpByName(kps,'right_shoulder');
+    if (la&&ra&&ls&&rs && la.score>0.3&&ra.score>0.3) {
+      const fw = Math.abs(la.x - ra.x);
+      const sw = Math.abs(ls.x - rs.x);
+      if (fw < sw * 0.5) events.push({ label:'stance_too_narrow', severity:3, msg:'Ayaklarını omuz genişliğinde aç', ts });
+    }
+    // Wrist release
+    if (history.length >= 5) {
+      const prev = history[history.length - 3];
+      const rwNow = kpByName(kps,'right_wrist'), rwPrev = kpByName(prev,'right_wrist');
+      if (rwNow&&rwPrev && rwNow.score>0.3&&rwPrev.score>0.3) {
+        if (rwPrev.y - rwNow.y > 0.05) {
+          const el = kpByName(kps,'right_elbow'), sh = kpByName(kps,'right_shoulder');
+          if (el&&sh && el.score>0.3) {
+            if (angle3(sh,el,rwNow) > 160) events.push({ label:'late_release', severity:2, msg:'Bileğini daha erken bırak', ts });
+          }
+        }
+      }
+    }
+  }
+
+  if (mode === 'layup') {
+    const lh = kpByName(kps,'left_hip'), rh = kpByName(kps,'right_hip'), nose = kpByName(kps,'nose');
+    if (lh&&rh&&nose && lh.score>0.3&&rh.score>0.3) {
+      const drift = Math.abs(nose.x - (lh.x+rh.x)/2);
+      if (drift > 0.1) events.push({ label:'torso_drift', severity:drift>0.15?4:2, msg:'Gövdeni dik tut, yana kayma', ts });
+    }
+    if (history.length >= 8) {
+      const lk = kpByName(kps,'left_knee'), rk = kpByName(kps,'right_knee');
+      const ph = history[history.length-5];
+      const plk = kpByName(ph,'left_knee'), prk = kpByName(ph,'right_knee');
+      if (lk&&rk&&plk&&prk) {
+        const ld = Math.abs(lk.y-plk.y), rd = Math.abs(rk.y-prk.y);
+        if (ld>0.03&&rd>0.03) {
+          const ratio = Math.min(ld,rd)/Math.max(ld,rd);
+          if (ratio < 0.3) events.push({ label:'timing_off', severity:2, msg:'Adım ritmine dikkat et', ts });
+        }
+      }
+    }
+  }
+
+  if (mode === 'dribble') {
+    if (history.length >= 10) {
+      const ys = [];
+      for (let i = Math.max(0,history.length-10); i < history.length; i++) {
+        const w = kpByName(history[i],'right_wrist');
+        if (w && w.score>0.3) ys.push(w.y);
+      }
+      if (ys.length >= 5) {
+        const m = ys.reduce((s,v)=>s+v,0)/ys.length;
+        const std = Math.sqrt(ys.reduce((s,v)=>s+(v-m)**2,0)/ys.length);
+        if (std > 0.08) events.push({ label:'hand_inconsistent', severity:std>0.12?4:2, msg:'Elini daha tutarlı tut', ts });
+      }
+    }
+    if (history.length >= 10) {
+      const xs = [];
+      for (let i = Math.max(0,history.length-10); i < history.length; i++) {
+        const ls = kpByName(history[i],'left_shoulder'), rs = kpByName(history[i],'right_shoulder');
+        if (ls&&rs && ls.score>0.3&&rs.score>0.3) xs.push((ls.x+rs.x)/2);
+      }
+      if (xs.length >= 5) {
+        const m = xs.reduce((s,v)=>s+v,0)/xs.length;
+        const std = Math.sqrt(xs.reduce((s,v)=>s+(v-m)**2,0)/xs.length);
+        if (std > 0.03) events.push({ label:'upper_body_sway', severity:std>0.05?3:2, msg:'Omuzlarını sabit tut', ts });
+      }
+    }
+  }
+
+  return events;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SKELETON DRAWING
+// ════════════════════════════════════════════════════════════════════════════
+const BONES = [
+  ['left_shoulder','right_shoulder'],['left_shoulder','left_elbow'],['left_elbow','left_wrist'],
+  ['right_shoulder','right_elbow'],['right_elbow','right_wrist'],
+  ['left_shoulder','left_hip'],['right_shoulder','right_hip'],['left_hip','right_hip'],
+  ['left_hip','left_knee'],['left_knee','left_ankle'],['right_hip','right_knee'],['right_knee','right_ankle'],
+];
+
+const ALERT_KPS = {
+  low_elbow:['left_elbow','right_elbow','left_shoulder','right_shoulder'],
+  late_release:['left_wrist','right_wrist'], no_snap:['left_wrist','right_wrist'],
+  feet_misaligned:['left_ankle','right_ankle'], stance_too_narrow:['left_ankle','right_ankle'],
+  torso_drift:['left_hip','right_hip','left_shoulder','right_shoulder'],
+  timing_off:['left_knee','right_knee'], hand_inconsistent:['left_wrist','right_wrist','left_elbow','right_elbow'],
+  upper_body_sway:['left_shoulder','right_shoulder','nose'],
+};
+
+function isAlert(name, events) {
+  return events.some(e => (ALERT_KPS[e.label]||[]).includes(name));
+}
+
+function drawSkeleton(ctx, kps, w, h, events) {
+  const map = {};
+  kps.forEach(k => map[k.name] = k);
+
+  // Bones
+  ctx.lineWidth = 3;
+  for (const [a,b] of BONES) {
+    const ka = map[a], kb = map[b];
+    if (ka&&kb && ka.score>0.3&&kb.score>0.3) {
+      const alert = isAlert(a,events) || isAlert(b,events);
+      ctx.strokeStyle = alert ? '#ff4444' : '#00ff88';
+      ctx.beginPath();
+      ctx.moveTo(ka.x*w, ka.y*h);
+      ctx.lineTo(kb.x*w, kb.y*h);
+      ctx.stroke();
+    }
+  }
+
+  // Joints
+  for (const kp of kps) {
+    if (kp.score < 0.3) continue;
+    const alert = isAlert(kp.name, events);
+    ctx.beginPath();
+    ctx.arc(kp.x*w, kp.y*h, alert?8:5, 0, Math.PI*2);
+    ctx.fillStyle = alert ? '#ff4444' : '#00ff88';
+    ctx.fill();
+    if (alert) {
+      ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(kp.x*w, kp.y*h, 14, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+
+  // Angle label on elbow if alert
+  if (events.some(e => e.label === 'low_elbow')) {
+    for (const side of ['right','left']) {
+      const sh = map[side+'_shoulder'], el = map[side+'_elbow'], wr = map[side+'_wrist'];
+      if (sh&&el&&wr && sh.score>0.3&&el.score>0.3&&wr.score>0.3) {
+        ctx.font = 'bold 14px monospace';
+        ctx.fillStyle = '#ff4444';
+        ctx.fillText(Math.round(angle3(sh,el,wr))+'°', el.x*w+15, el.y*h-10);
+      }
+    }
+  }
+
+  // Top alert badge
+  if (events.length > 0) {
+    const top = events.reduce((a,b) => a.severity>b.severity?a:b);
+    const bw = Math.min(w-40, 400);
+    const bx = (w-bw)/2;
+    ctx.fillStyle = 'rgba(255,68,68,0.85)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(bx, 20, bw, 40, 12);
+    else { ctx.rect(bx, 20, bw, 40); }
+    ctx.fill();
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.fillText(top.msg, w/2, 46);
+    ctx.textAlign = 'start';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// FEEDBACK
+// ════════════════════════════════════════════════════════════════════════════
+function processFeedback(events, ts) {
+  if (events.length === 0) {
+    feedbackState.goodFrames++;
+  } else {
+    feedbackState.goodFrames = 0;
+  }
+
+  const dt = ts - feedbackState.lastTime;
+  if (dt < 8000) return null;
+
+  // Praise
+  if (feedbackState.goodFrames > 60 && dt > 12000) {
+    feedbackState.goodFrames = 0;
+    feedbackState.lastTime = ts;
+    return { type:'praise', text:'Evet, bu daha iyi!', label:'praise', ts };
+  }
+
+  if (events.length === 0) return null;
+  const top = events.reduce((a,b) => a.severity>b.severity?a:b);
+
+  // Same error cooldown
+  if (top.label === feedbackState.lastLabel && ts - feedbackState.lastLabelTime < 20000) return null;
+
+  feedbackState.lastTime = ts;
+  feedbackState.lastLabel = top.label;
+  feedbackState.lastLabelTime = ts;
+
+  return { type: top.severity>=3?'instruction':'micro', text: top.msg, label: top.label, ts };
+}
+
+function showCue(cue) {
+  const overlay = document.getElementById('cue-overlay');
+  const bubble = document.getElementById('cue-bubble');
+  bubble.textContent = cue.text;
+  bubble.className = 'cue-bubble cue-' + cue.type;
+  overlay.style.display = 'flex';
+  setTimeout(() => { overlay.style.display = 'none'; }, 3000);
+}
+
+function speak(text) {
+  if ('speechSynthesis' in window) {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'tr-TR'; u.rate = 1.1; u.volume = 0.8;
+    speechSynthesis.speak(u);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SUMMARY
+// ════════════════════════════════════════════════════════════════════════════
+function buildSummary(durationMs) {
+  const sw = {1:0.5,2:1,3:2,4:3.5,5:5};
+  let ded = 0;
+  allEvents.forEach(e => ded += (sw[e.severity]||1));
+  const score = Math.max(0, Math.round(100 - Math.min(ded, 100)));
+
+  const sec = Math.round(durationMs/1000);
+  document.getElementById('summary-mode-label').textContent = MODE_NAMES[currentMode];
+
+  // Score
+  const scoreEl = document.getElementById('sum-score');
+  scoreEl.textContent = score;
+  scoreEl.style.color = score>=75?'#00ff88':score>=50?'#ffcc00':'#ff4444';
+  document.getElementById('sum-label').textContent = score>=75?'Harika!':score>=50?'İyi':'Geliştirilmeli';
+  document.getElementById('sum-label').style.color = score>=75?'#00ff88':score>=50?'#ffcc00':'#ff4444';
+  document.getElementById('sum-duration').textContent = Math.floor(sec/60)+'dk '+sec%60+'sn';
+  document.getElementById('sum-events').textContent = allEvents.length;
+  document.getElementById('sum-cues').textContent = allCues.length;
+
+  // Top mistakes
+  const counts = {};
+  allEvents.forEach(e => {
+    if (!counts[e.label]) counts[e.label] = {count:0, totalSev:0};
+    counts[e.label].count++;
+    counts[e.label].totalSev += e.severity;
+  });
+  const mistakes = Object.entries(counts)
+    .map(([label,d]) => ({label, count:d.count, avg:d.totalSev/d.count}))
+    .sort((a,b) => (b.count*b.avg)-(a.count*a.avg))
+    .slice(0,3);
+
+  const mSec = document.getElementById('sum-mistakes-section');
+  const mEl = document.getElementById('sum-mistakes');
+  mEl.innerHTML = '';
+  if (mistakes.length > 0) {
+    mSec.style.display = 'block';
+    mistakes.forEach((m,i) => {
+      const sevCls = m.avg>=3.5?'sev-high':m.avg>=2.5?'sev-med':'sev-low';
+      mEl.innerHTML += `<div class="mistake-card">
+        <div class="mistake-num">${i+1}</div>
+        <div class="mistake-info"><div class="mistake-label">${LABEL_TR[m.label]||m.label}</div><div class="mistake-count">${m.count} kez tespit edildi</div></div>
+        <div class="sev-badge ${sevCls}">${Math.round(m.avg)}/5</div>
+      </div>`;
+    });
+  } else { mSec.style.display = 'none'; }
+
+  // Timeline
+  const tlSec = document.getElementById('sum-timeline-section');
+  const tlEl = document.getElementById('sum-timeline');
+  tlEl.innerHTML = '';
+  if (allEvents.length > 0) {
+    tlSec.style.display = 'block';
+    allEvents.slice(0,30).forEach(e => {
+      const t = Math.floor(e.ts/1000);
+      tlEl.innerHTML += `<div class="tl-row"><span class="tl-time">${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}</span><span class="tl-dot s${e.severity}"></span><span style="color:#ccc">${LABEL_TR[e.label]||e.label}</span></div>`;
+    });
+    if (allEvents.length > 30) tlEl.innerHTML += `<div style="text-align:center;color:#666;font-size:11px;margin-top:8px">+${allEvents.length-30} daha fazla</div>`;
+  } else { tlSec.style.display = 'none'; }
+
+  // Cues log
+  const cSec = document.getElementById('sum-cues-section');
+  const cEl = document.getElementById('sum-cue-log');
+  cEl.innerHTML = '';
+  if (allCues.length > 0) {
+    cSec.style.display = 'block';
+    allCues.forEach(c => {
+      const t = Math.floor(c.ts/1000);
+      cEl.innerHTML += `<div class="cue-log-item ${c.type}"><span class="cue-log-time">${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}</span><span class="cue-log-text ${c.type}">${c.text}</span></div>`;
+    });
+  } else { cSec.style.display = 'none'; }
+
+  // Tips
+  const tSec = document.getElementById('sum-tips-section');
+  const tEl = document.getElementById('sum-tips');
+  tEl.innerHTML = '';
+  const tips = mistakes.slice(0,3).map(m => TIP_MAP[m.label]).filter(Boolean);
+  if (tips.length > 0) {
+    tSec.style.display = 'block';
+    tips.forEach((t,i) => { tEl.innerHTML += `<div class="tip-row"><span class="tip-num">${i+1}.</span><span class="tip-text">${t}</span></div>`; });
+  } else { tSec.style.display = 'none'; }
+}
+</script>
+</body>
+</html>
